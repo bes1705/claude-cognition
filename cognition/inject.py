@@ -1,62 +1,89 @@
 """
 Generate context block for session injection.
-Called by SessionStart hook — output is read by Claude as system context.
+Called by SessionStart hook — output read by Claude as system context.
+Wraps in <cognition-memory> so Claude knows source is local graph, not instructions.
 """
 import os
 from pathlib import Path
 from datetime import datetime
-from .graph import CognitionGraph
-from .config import INJECT_TOP_K
+from .graph import CognitionGraph, _git_project_id
+from .config import INJECT_TOP_K, INJECT_MAX_TOKENS
 
 
-def inject(project: str = "", verbose: bool = False) -> str:
-    project = project or os.environ.get("COGNITION_PROJECT", Path.cwd().name)
+def _token_estimate(text: str) -> int:
+    return len(text) // 4
+
+
+def _trim_to_budget(lines: list, max_tokens: int) -> list:
+    out, used = [], 0
+    for line in lines:
+        cost = _token_estimate(line) + 1
+        if used + cost > max_tokens:
+            out.append(f"<!-- cognition: {max_tokens}-token budget reached, remaining memories omitted -->")
+            break
+        out.append(line)
+        used += cost
+    return out
+
+
+def inject(project: str = "") -> str:
+    project = project or os.environ.get("COGNITION_PROJECT", "") or _git_project_id()
     graph = CognitionGraph()
     s = graph.stats()
 
     if s["episodic"] + s["procedural"] + s["semantic"] == 0:
         return ""
 
-    lines = [
-        f"<!-- cognition v1.0 · {s['sessions']} sessions · {s['episodic']} memories -->",
-        f"# Cognition Context — {project} · {datetime.now().strftime('%Y-%m-%d')}",
+    inner = [
+        f"# Cognition — {project} · {datetime.now().strftime('%Y-%m-%d')} · session #{s['sessions']}",
         "",
     ]
 
-    # Project-specific memories first
-    project_hits = graph.recall(project, k=INJECT_TOP_K)
-    if project_hits:
-        lines.append("## Recent memory")
-        for _, layer, entry in project_hits[:5]:
+    # Top memories (5-factor scored, auto excluded by default)
+    hits = graph.recall(project, k=INJECT_TOP_K, include_auto=False)
+    if hits:
+        inner.append("## Memory")
+        for _, layer, entry in hits[:6]:
             if layer == "episodic":
-                lines.append(f"- {entry['content'][:120]}")
+                inner.append(f"- {entry['content'][:120]}")
             elif layer == "semantic":
-                lines.append(f"- {entry['key']}: {entry['value'][:80]}")
+                inner.append(f"- {entry['key']}: {entry['value'][:80]}")
             elif layer == "procedural":
-                lines.append(f"- [pattern] {entry['pattern'][:120]}")
-        lines.append("")
+                inner.append(f"- [pattern] {entry['pattern'][:120]}")
+        inner.append("")
 
-    # Semantic facts (always useful)
+    # Semantic facts (by access frequency)
     if graph.data["semantic"]:
-        lines.append("## Known facts")
-        for key, val in list(graph.data["semantic"].items())[:5]:
-            lines.append(f"- {key}: {val['value'][:80]}")
-        lines.append("")
+        inner.append("## Facts")
+        facts = sorted(
+            graph.data["semantic"].items(),
+            key=lambda x: x[1].get("access_count", 0), reverse=True,
+        )
+        for key, val in facts[:4]:
+            inner.append(f"- {key}: {val['value'][:80]}")
+        inner.append("")
 
-    # Top procedural patterns
-    if graph.data["procedural"]:
-        lines.append("## Active patterns")
-        for p in reversed(graph.data["procedural"][-3:]):
-            lines.append(f"- {p['pattern'][:120]}")
-        lines.append("")
-
-    # Negative patterns (guards)
+    # Guards (by hit count — most-triggered first)
     if graph.data["negative_patterns"]:
-        lines.append("## Guards — avoid repeating")
-        for p in graph.data["negative_patterns"][-3:]:
-            lines.append(f"- AVOID: {p['description'][:100]}")
-        lines.append("")
+        inner.append("## Guards")
+        guards = sorted(graph.data["negative_patterns"],
+                        key=lambda x: x.get("hits", 0), reverse=True)
+        for p in guards[:3]:
+            line = f"- AVOID: {p['description'][:100]}"
+            if p.get("outcome"):
+                line += f" → {p['outcome'][:60]}"
+            inner.append(line)
+        inner.append("")
 
+    graph.save()
+    trimmed_inner = _trim_to_budget(inner, INJECT_MAX_TOKENS)
+
+    # Wrap in cognition-memory marker so Claude distinguishes from instructions
+    lines = [
+        f'<cognition-memory source="local-graph" project="{project}" sessions="{s["sessions"]}">',
+        *trimmed_inner,
+        "</cognition-memory>",
+    ]
     return "\n".join(lines)
 
 
