@@ -24,12 +24,38 @@ from .capture import save, auto_capture
 from .inject import print_inject
 from .detect import print_detect
 from .graph import CognitionGraph
+from . import sync as _sync
 
 
 def cmd_save(args):
     content = " ".join(args.content)
-    msg = save(content, kind=args.type, project=args.project, tags=args.tags or [])
-    print(msg)
+    if args.globals:
+        # Global memory: no project tag, injected on every machine/project
+        from .graph import CognitionGraph
+        g = CognitionGraph()
+        if args.type == "pattern":
+            g.add_procedural(content, project="", tags=["global"], skip_dedup=False)
+        else:
+            g.add_episodic(content, project="", tags=["global"],
+                           kind=args.type, global_memory=True)
+        g.save()
+        print(f"[cognition] Saved global ({args.type}): {content[:80]}")
+    else:
+        msg = save(content, kind=args.type, project=args.project, tags=args.tags or [])
+        print(msg)
+
+
+def cmd_sync_init(args):
+    _sync.init(args.remote)
+
+def cmd_sync_push(args):
+    _sync.push()
+
+def cmd_sync_pull(args):
+    _sync.pull()
+
+def cmd_sync_status(args):
+    _sync.status()
 
 
 def cmd_recall(args):
@@ -137,7 +163,33 @@ def main():
                    choices=["episodic", "decision", "learning", "pattern", "avoid", "fact"])
     p.add_argument("--project", "-p", default="")
     p.add_argument("--tags", nargs="*")
+    p.add_argument("--global", dest="globals", action="store_true",
+                   help="Global memory — injected across all projects and machines")
     p.set_defaults(func=cmd_save)
+
+    # sync
+    sync_p = sub.add_parser("sync", help="Cross-machine sync via git remote")
+    sync_sub = sync_p.add_subparsers(dest="sync_command")
+
+    p = sync_sub.add_parser("init", help="Initialize sync with a remote git repo")
+    p.add_argument("--remote", required=True, help="git remote URL (SSH or HTTPS)")
+    p.set_defaults(func=cmd_sync_init)
+
+    p = sync_sub.add_parser("push", help="Push memory to remote")
+    p.set_defaults(func=cmd_sync_push)
+
+    p = sync_sub.add_parser("pull", help="Pull memory from remote")
+    p.set_defaults(func=cmd_sync_pull)
+
+    p = sync_sub.add_parser("status", help="Show sync status")
+    p.set_defaults(func=cmd_sync_status)
+
+    def _sync_dispatch(args):
+        if not args.sync_command:
+            sync_p.print_help()
+        else:
+            args.func(args)
+    sync_p.set_defaults(func=_sync_dispatch)
 
     # recall
     p = sub.add_parser("recall", help="Search memories")

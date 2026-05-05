@@ -39,10 +39,17 @@ def inject(project: str = "") -> str:
         "",
     ]
 
-    # Top memories (5-factor scored, auto excluded by default)
+    # Top memories — project-specific + global (cross-project), auto excluded
     hits = graph.recall(project, k=INJECT_TOP_K, include_auto=False)
+    global_hits = [h for h in hits if h[2].get("global") or h[2].get("project", "") == ""]
+    project_hits = [h for h in hits if not (h[2].get("global") or h[2].get("project", "") == "")]
+
     if hits:
-        inner.append("## Memory")
+        if project_hits:
+            inner.append(f"## Memory — {project}")
+        if global_hits:
+            inner.append("## Memory — global")
+        inner.append("")
         for _, layer, entry in hits[:6]:
             if layer == "episodic":
                 inner.append(f"- {entry['content'][:120]}")

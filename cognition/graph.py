@@ -121,17 +121,19 @@ class CognitionGraph:
     # ── Episodic ──────────────────────────────────────────────────────────────
 
     def add_episodic(self, content: str, project: str = "", tags: list = None,
-                     kind: str = "episodic", skip_dedup: bool = False) -> bool:
+                     kind: str = "episodic", skip_dedup: bool = False,
+                     global_memory: bool = False) -> bool:
         content = _sanitize(content)
         if not skip_dedup and self._is_duplicate(content, "episodic"):
             return False
         self.data["episodic"].append({
             "content": content,
-            "project": project,
-            "tags": tags or [],
+            "project": "" if global_memory else project,
+            "tags": (tags or []) + (["global"] if global_memory else []),
             "kind": kind,
             "ts": _now_iso(),
             "access_count": 0,
+            "global": global_memory,
         })
         self.data["episodic"] = self.data["episodic"][-MAX_EPISODIC:]
         return True
@@ -242,8 +244,13 @@ class CognitionGraph:
 
         for entry in self.data["episodic"]:
             text = (entry.get("content", "") + " " + " ".join(entry.get("tags", []))).lower()
-            if not words or any(w in text for w in words):
+            # Global memories always included regardless of keyword filter
+            is_global = entry.get("global", False) or entry.get("project", "") == ""
+            if is_global or not words or any(w in text for w in words):
                 s = _score(entry, "episodic", text)
+                # Boost global memories slightly so they surface across projects
+                if is_global:
+                    s += 0.05
                 if s >= 0:
                     scored.append((s, "episodic", entry))
 
