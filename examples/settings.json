@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "command": "python -m cognition inject"
+      }
+    ],
+    "Stop": [
+      {
+        "command": "python -m cognition auto-capture"
+      }
+    ]
+  }
+}
