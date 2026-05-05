@@ -131,6 +131,11 @@ def cmd_compact(args):
     print(f"[cognition] Compacted {n} near-duplicate entr{'y' if n==1 else 'ies'} (threshold={args.threshold})")
 
 
+def cmd_setup(args):
+    from .setup_wizard import run
+    run()
+
+
 def cmd_status(args):
     graph = CognitionGraph()
     s = graph.stats()
@@ -240,6 +245,10 @@ def main():
     p = sub.add_parser("compact", help="Merge near-duplicate entries")
     p.add_argument("--threshold", type=float, default=0.75)
     p.set_defaults(func=cmd_compact)
+
+    # setup
+    p = sub.add_parser("setup", help="Interactive onboarding — configure everything in 60 seconds")
+    p.set_defaults(func=cmd_setup)
 
     # status
     p = sub.add_parser("status", help="Show graph stats")
