@@ -1,5 +1,7 @@
 # cognition
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20037893.svg)](https://doi.org/10.5281/zenodo.20037893)
+
 **Persistent 3-layer cognitive memory for Claude Code.**
 
 Claude is brilliant. But every session, it forgets everything — your stack, your decisions, your mistakes, your *why*.
